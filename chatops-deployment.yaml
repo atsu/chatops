@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: networking.gke.io/v1beta1
+    kind: ManagedCertificate
+    metadata:
+      name: chatops-cert
+    spec:
+      domains:
+        - chatops.atsu.io
+  - apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      name: chatops
+      labels:
+        app: chatops
+    spec:
+      serviceName: chatops
+      selector:
+        matchLabels:
+          app: chatops
+      updateStrategy:
+        type: RollingUpdate
+      volumeClaimTemplates:
+        - metadata:
+            name: chatops-datadir
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            volumeMode: Filesystem
+      template:
+        metadata:
+          labels:
+            app: chatops
+        spec:
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 3000
+            fsGroup: 2000
+          imagePullSecrets:
+            - name: atsu-pull-secret
+          containers:
+            - image: atsuio/chatops:dev
+              imagePullPolicy: Always
+              name: chatops
+              ports:
+                - containerPort:  8040
+                  protocol: TCP
+              env:
+              - name: ATSU_KAFKA
+                value: 'false'
+              - name: ATSU_SLACK_APP_ID
+                value: ''
+              - name: ATSU_SLACK_VFY_TOKEN
+                value: ''
+              - name: ATSU_SLACK_SECRET_SIGNING_KEY
+                value: ''
+              - name: ATSU_SLACK_CLIENT_ID
+                value: ''
+              - name: ATSU_SLACK_CLIENT_SECRET
+                value: ''
+              - name: ATSU_DB_FILE
+                value: 'db/chatops.db'
+              - name: ATSU_DEBUG
+                value: 'true'
+              resources: {}
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+              volumeMounts:
+                - mountPath: /data/db
+                  name: chatops-datadir
+
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: chatops
+    spec:
+      ports:
+        - name: chatops
+          port: 80
+          protocol: TCP
+          targetPort: 8040
+      selector:
+        app: chatops
+      sessionAffinity: None
+      type: NodePort
+
+  - apiVersion: extensions/v1beta1
+    kind: Ingress
+    metadata:
+      name: chatops-ingress
+      annotations:
+        kubernetes.io/ingress.global-static-ip-name: chatops
+        networking.gke.io/managed-certificates: chatops-cert
+    spec:
+      backend:
+        serviceName: chatops
+        servicePort: 80
